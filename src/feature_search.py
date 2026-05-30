@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import sqrt
 from pathlib import Path
 
 
@@ -82,6 +83,61 @@ def z_normalize(features: list[list[float]]) -> list[list[float]]:
         normalized.append(normalized_row)
 
     return normalized
+
+
+def euclidean_distance(
+    features: list[list[float]],
+    first_index: int,
+    second_index: int,
+    selected_features: list[int] | tuple[int, ...],
+) -> float:
+    """Calculate Euclidean distance between two rows over selected features."""
+    squared_distance = 0.0
+    for feature_index in selected_features:
+        difference = features[first_index][feature_index] - features[second_index][feature_index]
+        squared_distance += difference * difference
+
+    return sqrt(squared_distance)
+
+
+def nearest_neighbor_predict(
+    labels: list[int],
+    features: list[list[float]],
+    test_index: int,
+    selected_features: list[int] | tuple[int, ...],
+) -> int:
+    """Predict one row's label using every other row as possible training data."""
+    best_label: int | None = None
+    best_distance: float | None = None
+
+    for candidate_index in range(len(features)):
+        if candidate_index == test_index:
+            continue
+
+        distance = euclidean_distance(features, test_index, candidate_index, selected_features)
+        if best_distance is None or distance < best_distance:
+            best_distance = distance
+            best_label = labels[candidate_index]
+
+    if best_label is None:
+        raise ValueError("Nearest neighbor requires at least two instances")
+
+    return best_label
+
+
+def leave_one_out_accuracy(
+    labels: list[int],
+    features: list[list[float]],
+    selected_features: list[int] | tuple[int, ...],
+) -> float:
+    """Return leave-one-out nearest-neighbor accuracy as a percentage."""
+    correct = 0
+    for test_index, actual_label in enumerate(labels):
+        predicted_label = nearest_neighbor_predict(labels, features, test_index, selected_features)
+        if predicted_label == actual_label:
+            correct += 1
+
+    return correct / len(labels) * 100.0
 
 
 def _parse_label(value: float) -> int:
