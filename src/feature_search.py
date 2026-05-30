@@ -192,6 +192,58 @@ def forward_selection(labels: list[int], features: list[list[float]]) -> SearchR
     return SearchResult(selected_features=best_features, accuracy=best_accuracy)
 
 
+def backward_elimination(labels: list[int], features: list[list[float]]) -> SearchResult:
+    """Run backward feature elimination using leave-one-out nearest neighbor accuracy."""
+    selected_features = list(range(len(features[0]) if features else 0))
+    best_features = selected_features.copy()
+    best_accuracy = leave_one_out_accuracy(labels, features, selected_features)
+
+    print("Beginning backward elimination search.")
+    print(
+        f"Using feature(s) {_format_feature_set(selected_features)} "
+        f"accuracy is {best_accuracy:.1f}%\n"
+    )
+
+    while len(selected_features) > 1:
+        feature_to_remove = -1
+        level_best_features: list[int] = []
+        level_best_accuracy = -1.0
+
+        for feature_index in selected_features:
+            candidate_features = [
+                current_feature
+                for current_feature in selected_features
+                if current_feature != feature_index
+            ]
+            accuracy = leave_one_out_accuracy(labels, features, candidate_features)
+            print(
+                f"Using feature(s) {_format_feature_set(candidate_features)} "
+                f"accuracy is {accuracy:.1f}%"
+            )
+
+            if accuracy > level_best_accuracy:
+                level_best_accuracy = accuracy
+                level_best_features = candidate_features
+                feature_to_remove = feature_index
+
+        selected_features = level_best_features
+        print(
+            f"Feature set {_format_feature_set(selected_features)} was best, "
+            f"removed feature {feature_to_remove + 1}, accuracy is {level_best_accuracy:.1f}%\n"
+        )
+
+        if level_best_accuracy > best_accuracy:
+            best_accuracy = level_best_accuracy
+            best_features = selected_features.copy()
+
+    print(
+        f"Finished search. The best feature subset is {_format_feature_set(best_features)}, "
+        f"accuracy is {best_accuracy:.1f}%"
+    )
+
+    return SearchResult(selected_features=best_features, accuracy=best_accuracy)
+
+
 def _parse_label(value: float) -> int:
     label = int(value)
     if label != value:
