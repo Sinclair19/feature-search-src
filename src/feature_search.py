@@ -19,6 +19,12 @@ class Dataset:
         return len(self.features[0]) if self.features else 0
 
 
+@dataclass(frozen=True)
+class SearchResult:
+    selected_features: list[int]
+    accuracy: float
+
+
 def load_dataset(path: str | Path) -> Dataset:
     """Load class labels and continuous features from a numeric text file."""
     rows: list[list[float]] = []
@@ -140,8 +146,59 @@ def leave_one_out_accuracy(
     return correct / len(labels) * 100.0
 
 
+def forward_selection(labels: list[int], features: list[list[float]]) -> SearchResult:
+    """Run forward feature selection using leave-one-out nearest neighbor accuracy."""
+    selected_features: list[int] = []
+    best_features: list[int] = []
+    best_accuracy = -1.0
+    num_features = len(features[0]) if features else 0
+
+    print("Beginning forward selection search.")
+
+    for _ in range(num_features):
+        feature_to_add = -1
+        level_best_accuracy = -1.0
+
+        for feature_index in range(num_features):
+            if feature_index in selected_features:
+                continue
+
+            candidate_features = selected_features + [feature_index]
+            accuracy = leave_one_out_accuracy(labels, features, candidate_features)
+            print(
+                f"Using feature(s) {_format_feature_set(candidate_features)} "
+                f"accuracy is {accuracy:.1f}%"
+            )
+
+            if accuracy > level_best_accuracy:
+                level_best_accuracy = accuracy
+                feature_to_add = feature_index
+
+        selected_features.append(feature_to_add)
+        print(
+            f"Feature set {_format_feature_set(selected_features)} was best, "
+            f"accuracy is {level_best_accuracy:.1f}%\n"
+        )
+
+        if level_best_accuracy > best_accuracy:
+            best_accuracy = level_best_accuracy
+            best_features = selected_features.copy()
+
+    print(
+        f"Finished search. The best feature subset is {_format_feature_set(best_features)}, "
+        f"accuracy is {best_accuracy:.1f}%"
+    )
+
+    return SearchResult(selected_features=best_features, accuracy=best_accuracy)
+
+
 def _parse_label(value: float) -> int:
     label = int(value)
     if label != value:
         raise ValueError(f"Class label {value} is not an integer value")
     return label
+
+
+def _format_feature_set(feature_indexes: list[int] | tuple[int, ...]) -> str:
+    display_indexes = [str(feature_index + 1) for feature_index in feature_indexes]
+    return "{" + ", ".join(display_indexes) + "}"
