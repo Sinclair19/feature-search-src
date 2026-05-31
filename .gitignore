@@ -1,0 +1,41 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test and tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local datasets
+data/**/*.txt
+data/**/*.data
+data/**/*.csv
+data/**/*.tsv
+data/**/*.arff
+data/**/*.zip
+data/**/*.gz
+!data/**/.gitkeep
+
+# Generated experiment outputs
+results/**/*.txt
+results/**/*.csv
+results/**/*.png
+results/**/*.pdf
+!results/**/.gitkeep
+
+# Local editor and OS noise
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+Desktop.ini
