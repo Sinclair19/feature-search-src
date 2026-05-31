@@ -27,7 +27,6 @@ class SearchResult:
 
 
 def load_dataset(path: str | Path) -> Dataset:
-    """Load class labels and continuous features from a numeric text file."""
     rows: list[list[float]] = []
 
     for line_number, line in enumerate(Path(path).read_text().splitlines(), start=1):
@@ -54,101 +53,14 @@ def load_dataset(path: str | Path) -> Dataset:
                 f"Line {row_number} has {len(row)} columns; expected {expected_columns}"
             )
 
+    # The project format always stores the class label first.
     labels = [_parse_label(row[0]) for row in rows]
     features = [row[1:] for row in rows]
     return Dataset(labels=labels, features=features)
 
 
-def z_normalize(features: list[list[float]]) -> list[list[float]]:
-    """Return a z-normalized copy of the feature matrix."""
-    if not features:
-        return []
-
-    num_features = len(features[0])
-    for row_number, row in enumerate(features, start=1):
-        if len(row) != num_features:
-            raise ValueError(
-                f"Feature row {row_number} has {len(row)} values; expected {num_features}"
-            )
-
-    columns = list(zip(*features))
-    means = [sum(column) / len(column) for column in columns]
-    std_devs = []
-
-    for column, mean in zip(columns, means):
-        variance = sum((value - mean) ** 2 for value in column) / len(column)
-        std_devs.append(variance**0.5)
-
-    normalized: list[list[float]] = []
-    for row in features:
-        normalized_row = []
-        for value, mean, std_dev in zip(row, means, std_devs):
-            if std_dev == 0:
-                normalized_row.append(0.0)
-            else:
-                normalized_row.append((value - mean) / std_dev)
-        normalized.append(normalized_row)
-
-    return normalized
-
-
-def euclidean_distance(
-    features: list[list[float]],
-    first_index: int,
-    second_index: int,
-    selected_features: list[int] | tuple[int, ...],
-) -> float:
-    """Calculate Euclidean distance between two rows over selected features."""
-    squared_distance = 0.0
-    for feature_index in selected_features:
-        difference = features[first_index][feature_index] - features[second_index][feature_index]
-        squared_distance += difference * difference
-
-    return sqrt(squared_distance)
-
-
-def nearest_neighbor_predict(
-    labels: list[int],
-    features: list[list[float]],
-    test_index: int,
-    selected_features: list[int] | tuple[int, ...],
-) -> int:
-    """Predict one row's label using every other row as possible training data."""
-    best_label: int | None = None
-    best_distance: float | None = None
-
-    for candidate_index in range(len(features)):
-        if candidate_index == test_index:
-            continue
-
-        distance = euclidean_distance(features, test_index, candidate_index, selected_features)
-        if best_distance is None or distance < best_distance:
-            best_distance = distance
-            best_label = labels[candidate_index]
-
-    if best_label is None:
-        raise ValueError("Nearest neighbor requires at least two instances")
-
-    return best_label
-
-
-def leave_one_out_accuracy(
-    labels: list[int],
-    features: list[list[float]],
-    selected_features: list[int] | tuple[int, ...],
-) -> float:
-    """Return leave-one-out nearest-neighbor accuracy as a percentage."""
-    correct = 0
-    for test_index, actual_label in enumerate(labels):
-        predicted_label = nearest_neighbor_predict(labels, features, test_index, selected_features)
-        if predicted_label == actual_label:
-            correct += 1
-
-    return correct / len(labels) * 100.0
-
-
 def forward_selection(labels: list[int], features: list[list[float]]) -> SearchResult:
-    """Run forward feature selection using leave-one-out nearest neighbor accuracy."""
+    # Feature indexes are 0-based in the code and printed as 1-based for the trace.
     selected_features: list[int] = []
     best_features: list[int] = []
     best_accuracy = -1.0
@@ -194,7 +106,7 @@ def forward_selection(labels: list[int], features: list[list[float]]) -> SearchR
 
 
 def backward_elimination(labels: list[int], features: list[list[float]]) -> SearchResult:
-    """Run backward feature elimination using leave-one-out nearest neighbor accuracy."""
+    # Start with every feature, then remove one feature at each level.
     selected_features = list(range(len(features[0]) if features else 0))
     best_features = selected_features.copy()
     best_accuracy = leave_one_out_accuracy(labels, features, selected_features)
@@ -245,14 +157,100 @@ def backward_elimination(labels: list[int], features: list[list[float]]) -> Sear
     return SearchResult(selected_features=best_features, accuracy=best_accuracy)
 
 
+def leave_one_out_accuracy(
+    labels: list[int],
+    features: list[list[float]],
+    selected_features: list[int] | tuple[int, ...],
+) -> float:
+    correct = 0
+    for test_index, actual_label in enumerate(labels):
+        predicted_label = nearest_neighbor_predict(labels, features, test_index, selected_features)
+        if predicted_label == actual_label:
+            correct += 1
+
+    return correct / len(labels) * 100.0
+
+
+def nearest_neighbor_predict(
+    labels: list[int],
+    features: list[list[float]],
+    test_index: int,
+    selected_features: list[int] | tuple[int, ...],
+) -> int:
+    best_label: int | None = None
+    best_distance: float | None = None
+
+    for candidate_index in range(len(features)):
+        # Leave-one-out means the test row cannot be its own nearest neighbor.
+        if candidate_index == test_index:
+            continue
+
+        distance = euclidean_distance(features, test_index, candidate_index, selected_features)
+        if best_distance is None or distance < best_distance:
+            best_distance = distance
+            best_label = labels[candidate_index]
+
+    if best_label is None:
+        raise ValueError("Nearest neighbor requires at least two instances")
+
+    return best_label
+
+
+def euclidean_distance(
+    features: list[list[float]],
+    first_index: int,
+    second_index: int,
+    selected_features: list[int] | tuple[int, ...],
+) -> float:
+    squared_distance = 0.0
+    for feature_index in selected_features:
+        difference = features[first_index][feature_index] - features[second_index][feature_index]
+        squared_distance += difference * difference
+
+    return sqrt(squared_distance)
+
+
+def z_normalize(features: list[list[float]]) -> list[list[float]]:
+    if not features:
+        return []
+
+    num_features = len(features[0])
+    for row_number, row in enumerate(features, start=1):
+        if len(row) != num_features:
+            raise ValueError(
+                f"Feature row {row_number} has {len(row)} values; expected {num_features}"
+            )
+
+    columns = list(zip(*features))
+    means = [sum(column) / len(column) for column in columns]
+    std_devs = []
+
+    for column, mean in zip(columns, means):
+        variance = sum((value - mean) ** 2 for value in column) / len(column)
+        std_devs.append(variance**0.5)
+
+    normalized: list[list[float]] = []
+    for row in features:
+        normalized_row = []
+        for value, mean, std_dev in zip(row, means, std_devs):
+            if std_dev == 0:
+                # A constant column has no distance information after normalization.
+                normalized_row.append(0.0)
+            else:
+                normalized_row.append((value - mean) / std_dev)
+        normalized.append(normalized_row)
+
+    return normalized
+
+
 def run_search(
     dataset_path: str | Path,
     search_mode: str,
     use_normalization: bool = False,
     show_baseline: bool = False,
 ) -> None:
-    """Load a dataset and run the requested feature-search mode."""
     dataset = load_dataset(dataset_path)
+    # The CS170 synthetic files are already scaled, so normalization is opt-in.
     features = z_normalize(dataset.features) if use_normalization else dataset.features
 
     print(f"Dataset: {dataset_path}")
@@ -276,7 +274,6 @@ def run_search(
 
 
 def interactive_main() -> None:
-    """Prompt for run settings and execute the feature search."""
     dataset_path = input("Dataset path: ").strip()
     search_mode = _prompt_choice("Search mode", ("forward", "backward", "both"))
     use_normalization = _prompt_yes_no("Use z-normalization? [y/N]: ")
