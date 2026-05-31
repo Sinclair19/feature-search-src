@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from math import sqrt
 from pathlib import Path
@@ -244,6 +245,91 @@ def backward_elimination(labels: list[int], features: list[list[float]]) -> Sear
     return SearchResult(selected_features=best_features, accuracy=best_accuracy)
 
 
+def run_search(
+    dataset_path: str | Path,
+    search_mode: str,
+    use_normalization: bool = False,
+    show_baseline: bool = False,
+) -> None:
+    """Load a dataset and run the requested feature-search mode."""
+    dataset = load_dataset(dataset_path)
+    features = z_normalize(dataset.features) if use_normalization else dataset.features
+
+    print(f"Dataset: {dataset_path}")
+    print(f"Instances: {dataset.num_instances}")
+    print(f"Features: {dataset.num_features}")
+    print(f"Normalization: {'z-normalization' if use_normalization else 'none'}")
+
+    if show_baseline:
+        all_features = list(range(dataset.num_features))
+        accuracy = leave_one_out_accuracy(dataset.labels, features, all_features)
+        print(f"All-feature baseline accuracy: {accuracy:.1f}%\n")
+
+    if search_mode in ("forward", "both"):
+        forward_selection(dataset.labels, features)
+
+    if search_mode == "both":
+        print()
+
+    if search_mode in ("backward", "both"):
+        backward_elimination(dataset.labels, features)
+
+
+def interactive_main() -> None:
+    """Prompt for run settings and execute the feature search."""
+    dataset_path = input("Dataset path: ").strip()
+    search_mode = _prompt_choice("Search mode", ("forward", "backward", "both"))
+    use_normalization = _prompt_yes_no("Use z-normalization? [y/N]: ")
+    show_baseline = _prompt_yes_no("Show all-feature baseline? [y/N]: ")
+
+    run_search(
+        dataset_path=dataset_path,
+        search_mode=search_mode,
+        use_normalization=use_normalization,
+        show_baseline=show_baseline,
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Run nearest-neighbor feature selection on a project-format dataset."
+    )
+    parser.add_argument("dataset", nargs="?", help="Path to the dataset file.")
+    parser.add_argument(
+        "--search",
+        choices=("forward", "backward", "both"),
+        default="both",
+        help="Feature-search mode to run.",
+    )
+    parser.add_argument(
+        "--normalize",
+        action="store_true",
+        help="Apply z-normalization before nearest-neighbor search.",
+    )
+    parser.add_argument(
+        "--baseline",
+        action="store_true",
+        help="Print leave-one-out accuracy using all features before search.",
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Prompt for dataset path and run options.",
+    )
+    args = parser.parse_args()
+
+    if args.interactive or not args.dataset:
+        interactive_main()
+        return
+
+    run_search(
+        dataset_path=args.dataset,
+        search_mode=args.search,
+        use_normalization=args.normalize,
+        show_baseline=args.baseline,
+    )
+
+
 def _parse_label(value: float) -> int:
     label = int(value)
     if label != value:
@@ -254,3 +340,21 @@ def _parse_label(value: float) -> int:
 def _format_feature_set(feature_indexes: list[int] | tuple[int, ...]) -> str:
     display_indexes = [str(feature_index + 1) for feature_index in feature_indexes]
     return "{" + ", ".join(display_indexes) + "}"
+
+
+def _prompt_choice(prompt: str, choices: tuple[str, ...]) -> str:
+    choice_text = "/".join(choices)
+    while True:
+        value = input(f"{prompt} ({choice_text}): ").strip().lower()
+        if value in choices:
+            return value
+        print(f"Please enter one of: {choice_text}")
+
+
+def _prompt_yes_no(prompt: str) -> bool:
+    value = input(prompt).strip().lower()
+    return value in ("y", "yes")
+
+
+if __name__ == "__main__":
+    main()
