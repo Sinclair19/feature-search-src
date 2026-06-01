@@ -4,6 +4,11 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
+try:
+    import numpy as np
+except ModuleNotFoundError:
+    np = None
+
 
 @dataclass(frozen=True)
 class Dataset:
@@ -59,11 +64,12 @@ def load_dataset(path: str | Path) -> Dataset:
 
 
 def forward_selection(labels: list[int], features: list[list[float]]) -> SearchResult:
+    features = _prepare_features(features)
     # Feature indexes are 0-based in the code and printed as 1-based for the trace.
     selected_features: list[int] = []
     best_features: list[int] = []
     best_accuracy = -1.0
-    num_features = len(features[0]) if features else 0
+    num_features = _num_features(features)
     # The same subset can be checked more than once, so remember its accuracy.
     accuracy_cache: dict[tuple[int, ...], float] = {}
 
@@ -112,8 +118,9 @@ def forward_selection(labels: list[int], features: list[list[float]]) -> SearchR
 
 
 def backward_elimination(labels: list[int], features: list[list[float]]) -> SearchResult:
+    features = _prepare_features(features)
     # Start with every feature, then remove one feature at each level.
-    selected_features = list(range(len(features[0]) if features else 0))
+    selected_features = list(range(_num_features(features)))
     # Cache keys are sorted tuples of feature indexes, for example (3, 4, 7).
     accuracy_cache: dict[tuple[int, ...], float] = {}
     best_features = selected_features.copy()
@@ -193,6 +200,9 @@ def leave_one_out_accuracy(
     features: list[list[float]],
     selected_features: list[int] | tuple[int, ...],
 ) -> float:
+    if _is_numpy_matrix(features):
+        return numpy_leave_one_out_accuracy(labels, features, selected_features)
+
     correct = 0
     for test_index, actual_label in enumerate(labels):
         # Keep this loop here instead of calling nearest_neighbor_predict:
@@ -214,6 +224,28 @@ def leave_one_out_accuracy(
             correct += 1
 
     return correct / len(labels) * 100.0
+
+
+def numpy_leave_one_out_accuracy(
+    labels: list[int],
+    features,
+    selected_features: list[int] | tuple[int, ...],
+) -> float:
+    labels_array = np.asarray(labels)
+    selected = np.asarray(selected_features)
+    correct = 0
+
+    for test_index, actual_label in enumerate(labels_array):
+        # NumPy computes every distance from this test row in one vectorized step.
+        differences = features[:, selected] - features[test_index, selected]
+        distances = (differences * differences).sum(axis=1)
+        distances[test_index] = float("inf")
+
+        nearest_index = int(distances.argmin())
+        if labels_array[nearest_index] == actual_label:
+            correct += 1
+
+    return correct / len(labels_array) * 100.0
 
 
 def nearest_neighbor_predict(
@@ -297,11 +329,14 @@ def run_search(
     dataset = load_dataset(dataset_path)
     # The CS170 synthetic files are already scaled, so normalization is opt-in.
     features = z_normalize(dataset.features) if use_normalization else dataset.features
+    if np is not None:
+        features = _prepare_features(features)
 
     print(f"Dataset: {dataset_path}")
     print(f"Instances: {dataset.num_instances}")
     print(f"Features: {dataset.num_features}")
     print(f"Normalization: {'z-normalization' if use_normalization else 'none'}")
+    print(f"Distance engine: {'NumPy' if _is_numpy_matrix(features) else 'pure Python'}")
 
     if show_baseline:
         all_features = list(range(dataset.num_features))
@@ -377,6 +412,22 @@ def _parse_label(value: float) -> int:
     if label != value:
         raise ValueError(f"Class label {value} is not an integer value")
     return label
+
+
+def _prepare_features(features):
+    if np is None or _is_numpy_matrix(features):
+        return features
+    return np.asarray(features, dtype=float)
+
+
+def _is_numpy_matrix(features) -> bool:
+    return np is not None and isinstance(features, np.ndarray)
+
+
+def _num_features(features) -> int:
+    if _is_numpy_matrix(features):
+        return features.shape[1] if features.size else 0
+    return len(features[0]) if features else 0
 
 
 def _format_feature_set(feature_indexes: list[int] | tuple[int, ...]) -> str:
