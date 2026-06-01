@@ -338,19 +338,44 @@ def run_search(
     print(f"Normalization: {'z-normalization' if use_normalization else 'none'}")
     print(f"Distance engine: {'NumPy' if _is_numpy_matrix(features) else 'pure Python'}")
 
+    baseline_accuracy = None
     if show_baseline:
         all_features = list(range(dataset.num_features))
-        accuracy = leave_one_out_accuracy(dataset.labels, features, all_features)
-        print(f"All-feature baseline accuracy: {accuracy:.1f}%\n")
+        baseline_accuracy = leave_one_out_accuracy(dataset.labels, features, all_features)
+        print(f"All-feature baseline accuracy: {baseline_accuracy:.1f}%\n")
 
+    forward_result = None
     if search_mode in ("forward", "both"):
-        forward_selection(dataset.labels, features)
+        forward_result = forward_selection(dataset.labels, features)
 
     if search_mode == "both":
         print()
 
+    backward_result = None
     if search_mode in ("backward", "both"):
-        backward_elimination(dataset.labels, features)
+        backward_result = backward_elimination(dataset.labels, features)
+
+    print_summary(baseline_accuracy, forward_result, backward_result)
+
+
+def print_summary(
+    baseline_accuracy: float | None,
+    forward_result: SearchResult | None,
+    backward_result: SearchResult | None,
+) -> None:
+    print("\nSummary")
+    if baseline_accuracy is not None:
+        print(f"All features: {baseline_accuracy:.1f}%")
+    if forward_result is not None:
+        print(
+            f"Forward selection: {_format_feature_set(forward_result.selected_features)}, "
+            f"{forward_result.accuracy:.1f}%"
+        )
+    if backward_result is not None:
+        print(
+            f"Backward elimination: {_format_feature_set(backward_result.selected_features)}, "
+            f"{backward_result.accuracy:.1f}%"
+        )
 
 
 def interactive_main() -> None:
