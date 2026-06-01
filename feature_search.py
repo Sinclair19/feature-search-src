@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from math import sqrt
 from pathlib import Path
 
 
@@ -65,6 +64,8 @@ def forward_selection(labels: list[int], features: list[list[float]]) -> SearchR
     best_features: list[int] = []
     best_accuracy = -1.0
     num_features = len(features[0]) if features else 0
+    # The same subset can be checked more than once, so remember its accuracy.
+    accuracy_cache: dict[tuple[int, ...], float] = {}
 
     print("Beginning forward selection search.")
 
@@ -77,7 +78,12 @@ def forward_selection(labels: list[int], features: list[list[float]]) -> SearchR
                 continue
 
             candidate_features = selected_features + [feature_index]
-            accuracy = leave_one_out_accuracy(labels, features, candidate_features)
+            accuracy = cached_leave_one_out_accuracy(
+                labels,
+                features,
+                candidate_features,
+                accuracy_cache,
+            )
             print(
                 f"Using feature(s) {_format_feature_set(candidate_features)} "
                 f"accuracy is {accuracy:.1f}%"
@@ -108,8 +114,15 @@ def forward_selection(labels: list[int], features: list[list[float]]) -> SearchR
 def backward_elimination(labels: list[int], features: list[list[float]]) -> SearchResult:
     # Start with every feature, then remove one feature at each level.
     selected_features = list(range(len(features[0]) if features else 0))
+    # Cache keys are sorted tuples of feature indexes, for example (3, 4, 7).
+    accuracy_cache: dict[tuple[int, ...], float] = {}
     best_features = selected_features.copy()
-    best_accuracy = leave_one_out_accuracy(labels, features, selected_features)
+    best_accuracy = cached_leave_one_out_accuracy(
+        labels,
+        features,
+        selected_features,
+        accuracy_cache,
+    )
 
     print("Beginning backward elimination search.")
     print(
@@ -128,7 +141,12 @@ def backward_elimination(labels: list[int], features: list[list[float]]) -> Sear
                 for current_feature in selected_features
                 if current_feature != feature_index
             ]
-            accuracy = leave_one_out_accuracy(labels, features, candidate_features)
+            accuracy = cached_leave_one_out_accuracy(
+                labels,
+                features,
+                candidate_features,
+                accuracy_cache,
+            )
             print(
                 f"Using feature(s) {_format_feature_set(candidate_features)} "
                 f"accuracy is {accuracy:.1f}%"
@@ -157,6 +175,19 @@ def backward_elimination(labels: list[int], features: list[list[float]]) -> Sear
     return SearchResult(selected_features=best_features, accuracy=best_accuracy)
 
 
+def cached_leave_one_out_accuracy(
+    labels: list[int],
+    features: list[list[float]],
+    selected_features: list[int] | tuple[int, ...],
+    accuracy_cache: dict[tuple[int, ...], float],
+) -> float:
+    # Sorting makes [4, 8] and [8, 4] share the same cached result.
+    key = tuple(sorted(selected_features))
+    if key not in accuracy_cache:
+        accuracy_cache[key] = leave_one_out_accuracy(labels, features, selected_features)
+    return accuracy_cache[key]
+
+
 def leave_one_out_accuracy(
     labels: list[int],
     features: list[list[float]],
@@ -164,7 +195,21 @@ def leave_one_out_accuracy(
 ) -> float:
     correct = 0
     for test_index, actual_label in enumerate(labels):
-        predicted_label = nearest_neighbor_predict(labels, features, test_index, selected_features)
+        # Keep this loop here instead of calling nearest_neighbor_predict:
+        # this function runs many times during search, so avoiding extra calls helps.
+        predicted_label = None
+        best_distance = None
+
+        for candidate_index, candidate_label in enumerate(labels):
+            # Leave-one-out means the test row cannot be its own nearest neighbor.
+            if candidate_index == test_index:
+                continue
+
+            distance = squared_distance(features, test_index, candidate_index, selected_features)
+            if best_distance is None or distance < best_distance:
+                best_distance = distance
+                predicted_label = candidate_label
+
         if predicted_label == actual_label:
             correct += 1
 
@@ -181,11 +226,10 @@ def nearest_neighbor_predict(
     best_distance: float | None = None
 
     for candidate_index in range(len(features)):
-        # Leave-one-out means the test row cannot be its own nearest neighbor.
         if candidate_index == test_index:
             continue
 
-        distance = euclidean_distance(features, test_index, candidate_index, selected_features)
+        distance = squared_distance(features, test_index, candidate_index, selected_features)
         if best_distance is None or distance < best_distance:
             best_distance = distance
             best_label = labels[candidate_index]
@@ -196,18 +240,19 @@ def nearest_neighbor_predict(
     return best_label
 
 
-def euclidean_distance(
+def squared_distance(
     features: list[list[float]],
     first_index: int,
     second_index: int,
     selected_features: list[int] | tuple[int, ...],
 ) -> float:
+    # No sqrt is needed because squared distance has the same ordering as distance.
     squared_distance = 0.0
     for feature_index in selected_features:
         difference = features[first_index][feature_index] - features[second_index][feature_index]
         squared_distance += difference * difference
 
-    return sqrt(squared_distance)
+    return squared_distance
 
 
 def z_normalize(features: list[list[float]]) -> list[list[float]]:
