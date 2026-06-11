@@ -25,7 +25,7 @@ CLUSTER_COUNTS = (3, 4)
 
 
 def load_hardware_data(data_path=DATA_PATH):
-    """Load the UCI computer hardware data and validate the expected schema."""
+    """Load the data."""
     df = pd.read_csv(data_path)
     expected_columns = LABEL_COLUMNS + ALL_NUMERIC_COLUMNS
     missing_columns = [column for column in expected_columns if column not in df.columns]
@@ -43,6 +43,7 @@ def load_hardware_data(data_path=DATA_PATH):
 
 
 def scale_numeric_features(df, columns):
+    """Scale the numeric features using StandardScaler."""
     values = df.loc[:, columns].copy()
     return pd.DataFrame(
         StandardScaler().fit_transform(values),
@@ -52,6 +53,7 @@ def scale_numeric_features(df, columns):
 
 
 def save_basic_summaries(df, output_dir=OUTPUT_DIR):
+    """Saving some summary values as CSV for each analysis."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     df.loc[:, LABEL_COLUMNS + ["machine_label"] + ALL_NUMERIC_COLUMNS].to_csv(
