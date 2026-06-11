@@ -15,6 +15,7 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 import matplotlib.pyplot as plt
 
 LABEL_COLUMNS = ["vendor_name", "Model"]
+CYCLE_TIME_COLUMNS = ["MYCT"]
 HARDWARE_COLUMNS = ["MYCT", "MMIN", "MMAX", "CACH", "CHMIN", "CHMAX"]
 MEMORY_IO_COLUMNS = ["MMIN", "MMAX", "CACH", "CHMIN", "CHMAX"]
 PERFORMANCE_COLUMNS = ["PRP", "ERP"]
@@ -207,12 +208,103 @@ def save_memory_io_linkage_outputs(df, output_dir=OUTPUT_DIR):
         )
 
 
+def save_cycle_time_linkage_outputs(df, output_dir=OUTPUT_DIR):
+    cycle_time_dir = output_dir / "cycle_time_linkage_methods"
+
+    for method in LINKAGE_METHODS:
+        method_dir = cycle_time_dir / method
+        method_prefix = f"cycle_time_{method}"
+        linkage_matrix = make_linkage_matrix(df, CYCLE_TIME_COLUMNS, method)
+
+        plot_machine_dendrogram(
+            df,
+            linkage_matrix,
+            f"Cycle Time Only ({method.title()} Linkage)",
+            method_dir / f"{method_prefix}_dendrogram_truncated.png",
+            truncate=True,
+        )
+        plot_machine_dendrogram(
+            df,
+            linkage_matrix,
+            f"Cycle Time Only ({method.title()} Linkage, Labeled)",
+            method_dir / f"{method_prefix}_dendrogram_labeled.png",
+            truncate=False,
+        )
+        save_cluster_csvs(
+            df,
+            linkage_matrix,
+            CYCLE_TIME_COLUMNS,
+            method_dir,
+            method_prefix,
+        )
+
+
+def plot_column_dendrogram(columns, linkage_matrix, title, output_path):
+    plt.figure(figsize=(10, 6))
+    dendrogram(
+        linkage_matrix,
+        labels=columns,
+        leaf_rotation=0,
+        leaf_font_size=10,
+    )
+    plt.title(title)
+    plt.xlabel("Numeric columns")
+    plt.ylabel("Linkage distance")
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=180)
+    plt.close()
+
+
+def save_column_cluster_csvs(columns, linkage_matrix, output_dir, prefix):
+    linkage_df = pd.DataFrame(
+        linkage_matrix,
+        columns=["left_child", "right_child", "distance", "leaf_count"],
+    )
+    linkage_df.to_csv(output_dir / f"{prefix}_linkage_matrix.csv", index=False)
+
+    assignments = pd.DataFrame({"column": columns})
+    for cluster_count in CLUSTER_COUNTS:
+        assignments[f"column_cluster_k{cluster_count}"] = fcluster(
+            linkage_matrix,
+            t=cluster_count,
+            criterion="maxclust",
+        )
+
+    assignments.to_csv(output_dir / f"{prefix}_column_clusters.csv", index=False)
+
+
+def save_column_clustering_outputs(df, output_dir=OUTPUT_DIR):
+    column_dir = output_dir / "column_clustering"
+    scaled = scale_numeric_features(df, ALL_NUMERIC_COLUMNS)
+
+    for method in LINKAGE_METHODS:
+        method_dir = column_dir / method
+        method_prefix = f"columns_{method}"
+        linkage_matrix = linkage(scaled.T, method=method)
+
+        plot_column_dendrogram(
+            ALL_NUMERIC_COLUMNS,
+            linkage_matrix,
+            f"Numeric Column Clustering ({method.title()} Linkage)",
+            method_dir / f"{method_prefix}_dendrogram.png",
+        )
+        save_column_cluster_csvs(
+            ALL_NUMERIC_COLUMNS,
+            linkage_matrix,
+            method_dir,
+            method_prefix,
+        )
+
+
 def main():
     df = load_hardware_data()
     save_basic_summaries(df)
     save_all_numeric_linkage_outputs(df)
     save_memory_io_linkage_outputs(df)
-    print(f"Wrote basic computer hardware summaries to {OUTPUT_DIR}")
+    save_cycle_time_linkage_outputs(df)
+    save_column_clustering_outputs(df)
+    print(f"Wrote computer hardware dendrogram analysis to {OUTPUT_DIR}")
 
 
 if __name__ == "__main__":
