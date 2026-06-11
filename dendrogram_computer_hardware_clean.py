@@ -1,16 +1,25 @@
+import os
 from pathlib import Path
 
 import pandas as pd
+from scipy.cluster.hierarchy import dendrogram, fcluster, linkage
 from sklearn.preprocessing import StandardScaler
 
 
 DATA_PATH = Path("data/computer-hardware/machine.csv")
 OUTPUT_DIR = Path("outputs/computer_hardware_clean")
+os.environ.setdefault("MPLCONFIGDIR", str(OUTPUT_DIR / "matplotlib_config"))
+os.environ.setdefault("XDG_CACHE_HOME", str(OUTPUT_DIR / "cache"))
+os.environ.setdefault("MPLBACKEND", "Agg")
+
+import matplotlib.pyplot as plt
 
 LABEL_COLUMNS = ["vendor_name", "Model"]
 HARDWARE_COLUMNS = ["MYCT", "MMIN", "MMAX", "CACH", "CHMIN", "CHMAX"]
 PERFORMANCE_COLUMNS = ["PRP", "ERP"]
 ALL_NUMERIC_COLUMNS = HARDWARE_COLUMNS + PERFORMANCE_COLUMNS
+LINKAGE_METHODS = ["single", "complete", "average", "ward"]
+CLUSTER_COUNTS = (3, 4)
 
 
 def load_hardware_data(data_path=DATA_PATH):
@@ -67,9 +76,108 @@ def save_basic_summaries(df, output_dir=OUTPUT_DIR):
     vendor_summary.to_csv(output_dir / "vendor_summary.csv", index=False)
 
 
+def make_linkage_matrix(df, columns, method):
+    scaled = scale_numeric_features(df, columns)
+    return linkage(scaled, method=method)
+
+
+def plot_machine_dendrogram(df, linkage_matrix, title, output_path, truncate=True):
+    plt.figure(figsize=(18, 9))
+    dendrogram_kwargs = {
+        "leaf_rotation": 90,
+        "leaf_font_size": 7,
+    }
+    if truncate:
+        dendrogram_kwargs.update(
+            {
+                "truncate_mode": "lastp",
+                "p": 30,
+                "show_leaf_counts": True,
+            }
+        )
+    else:
+        dendrogram_kwargs["labels"] = df["machine_label"].to_numpy()
+
+    dendrogram(linkage_matrix, **dendrogram_kwargs)
+    plt.title(title)
+    plt.xlabel("Machines" if not truncate else "Machine clusters")
+    plt.ylabel("Linkage distance")
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=180)
+    plt.close()
+
+
+def save_cluster_csvs(df, linkage_matrix, feature_columns, output_dir, prefix):
+    assignments = df.loc[:, LABEL_COLUMNS + ["machine_label"] + feature_columns].copy()
+
+    for cluster_count in CLUSTER_COUNTS:
+        cluster_column = f"cluster_k{cluster_count}"
+        assignments[cluster_column] = fcluster(
+            linkage_matrix,
+            t=cluster_count,
+            criterion="maxclust",
+        )
+
+        summary = (
+            assignments.groupby(cluster_column)
+            .agg(
+                machines=("machine_label", "count"),
+                MYCT_mean=("MYCT", "mean"),
+                MMIN_mean=("MMIN", "mean"),
+                MMAX_mean=("MMAX", "mean"),
+                CACH_mean=("CACH", "mean"),
+                CHMIN_mean=("CHMIN", "mean"),
+                CHMAX_mean=("CHMAX", "mean"),
+                PRP_mean=("PRP", "mean"),
+                ERP_mean=("ERP", "mean"),
+            )
+            .round(2)
+            .reset_index()
+        )
+        summary.to_csv(
+            output_dir / f"{prefix}_cluster_summary_k{cluster_count}.csv",
+            index=False,
+        )
+
+    assignments.to_csv(output_dir / f"{prefix}_cluster_assignments.csv", index=False)
+
+
+def save_all_numeric_linkage_outputs(df, output_dir=OUTPUT_DIR):
+    all_numeric_dir = output_dir / "all_numeric_linkage_methods"
+
+    for method in LINKAGE_METHODS:
+        method_dir = all_numeric_dir / method
+        method_prefix = f"all_numeric_{method}"
+        linkage_matrix = make_linkage_matrix(df, ALL_NUMERIC_COLUMNS, method)
+
+        plot_machine_dendrogram(
+            df,
+            linkage_matrix,
+            f"All Numeric Features ({method.title()} Linkage)",
+            method_dir / f"{method_prefix}_dendrogram_truncated.png",
+            truncate=True,
+        )
+        plot_machine_dendrogram(
+            df,
+            linkage_matrix,
+            f"All Numeric Features ({method.title()} Linkage, Labeled)",
+            method_dir / f"{method_prefix}_dendrogram_labeled.png",
+            truncate=False,
+        )
+        save_cluster_csvs(
+            df,
+            linkage_matrix,
+            ALL_NUMERIC_COLUMNS,
+            method_dir,
+            method_prefix,
+        )
+
+
 def main():
     df = load_hardware_data()
     save_basic_summaries(df)
+    save_all_numeric_linkage_outputs(df)
     print(f"Wrote basic computer hardware summaries to {OUTPUT_DIR}")
 
 
