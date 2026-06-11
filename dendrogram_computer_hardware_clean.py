@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 
 LABEL_COLUMNS = ["vendor_name", "Model"]
 HARDWARE_COLUMNS = ["MYCT", "MMIN", "MMAX", "CACH", "CHMIN", "CHMAX"]
+MEMORY_IO_COLUMNS = ["MMIN", "MMAX", "CACH", "CHMIN", "CHMAX"]
 PERFORMANCE_COLUMNS = ["PRP", "ERP"]
 ALL_NUMERIC_COLUMNS = HARDWARE_COLUMNS + PERFORMANCE_COLUMNS
 LINKAGE_METHODS = ["single", "complete", "average", "ward"]
@@ -109,7 +110,8 @@ def plot_machine_dendrogram(df, linkage_matrix, title, output_path, truncate=Tru
 
 
 def save_cluster_csvs(df, linkage_matrix, feature_columns, output_dir, prefix):
-    assignments = df.loc[:, LABEL_COLUMNS + ["machine_label"] + feature_columns].copy()
+    assignments = df.loc[:, LABEL_COLUMNS + ["machine_label"] + ALL_NUMERIC_COLUMNS].copy()
+    assignments["cluster_features"] = ", ".join(feature_columns)
 
     for cluster_count in CLUSTER_COUNTS:
         cluster_column = f"cluster_k{cluster_count}"
@@ -174,10 +176,42 @@ def save_all_numeric_linkage_outputs(df, output_dir=OUTPUT_DIR):
         )
 
 
+def save_memory_io_linkage_outputs(df, output_dir=OUTPUT_DIR):
+    memory_io_dir = output_dir / "memory_io_linkage_methods"
+
+    for method in LINKAGE_METHODS:
+        method_dir = memory_io_dir / method
+        method_prefix = f"memory_io_{method}"
+        linkage_matrix = make_linkage_matrix(df, MEMORY_IO_COLUMNS, method)
+
+        plot_machine_dendrogram(
+            df,
+            linkage_matrix,
+            f"Memory and I/O Features ({method.title()} Linkage)",
+            method_dir / f"{method_prefix}_dendrogram_truncated.png",
+            truncate=True,
+        )
+        plot_machine_dendrogram(
+            df,
+            linkage_matrix,
+            f"Memory and I/O Features ({method.title()} Linkage, Labeled)",
+            method_dir / f"{method_prefix}_dendrogram_labeled.png",
+            truncate=False,
+        )
+        save_cluster_csvs(
+            df,
+            linkage_matrix,
+            MEMORY_IO_COLUMNS,
+            method_dir,
+            method_prefix,
+        )
+
+
 def main():
     df = load_hardware_data()
     save_basic_summaries(df)
     save_all_numeric_linkage_outputs(df)
+    save_memory_io_linkage_outputs(df)
     print(f"Wrote basic computer hardware summaries to {OUTPUT_DIR}")
 
 
